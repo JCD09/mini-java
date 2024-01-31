@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::thompson::ThompsonNfa;
-
+use crate::thompson::NFA;
 
 const CAPACITY: usize = 1000;
 
@@ -12,9 +11,14 @@ pub enum Expr {
     Repetition(Box<KleeneStar>),
     Alternation(Box<Alternation>),
     Concatenation(Box<Concatenation>),
-    Group(Box<Group>)
+    Group(Box<Group>),
+    Escape(Box<Escape>),
+    MetaChar(Box<MetaChar>)
 }
 
+impl Expr {
+
+}
 
 #[derive(Clone)]
 pub struct Literal {
@@ -71,6 +75,7 @@ impl Concatenation {
     }
 }
 
+
 #[derive(Clone)]
 pub struct Group {
     expr: Expr
@@ -84,12 +89,30 @@ impl Group {
     }
 }
 
+#[derive(Clone)]
+pub struct Escape {
+    expr: Expr
+}
+
+impl Escape {
+    pub fn new(expr: Expr) -> Escape {
+        Escape { 
+            expr    
+        }
+    }
+}
 pub trait Visitor {
     fn start(&self);
     fn visit_pre(&mut self, ast: &Expr);
     fn visit_in(&mut self, ast: &Expr);
     fn visit_post(&mut self, ast: &Expr);
     fn finish(&self, ast: &Expr);
+}
+type Nfa = (usize, usize);
+
+pub struct ThompsonVisitor {
+    args: VecDeque<Nfa>,
+    nfa: NFA,
 }
 
 impl Visitor for ThompsonVisitor {
@@ -105,23 +128,19 @@ impl Visitor for ThompsonVisitor {
     }
 }
 
-
-pub struct ThompsonVisitor {
-    nfa: ThompsonNfa,
-}
-
 impl ThompsonVisitor {
     pub fn new() -> ThompsonVisitor {
       ThompsonVisitor {
-        nfa: ThompsonNfa::new()
+        args: VecDeque::with_capacity(2),
+        nfa: NFA::new()
       }  
     }
 
-    // iterative (and in order) DFS traversal of a tree
+    // iterative (pre, post and in order) traversal of a tree using visiter pattern;
     pub fn visit(&mut self, ast: &Expr) {
         self.start();
         let mut active = VecDeque::<&Expr>::with_capacity(CAPACITY);
-        let mut frames = VecDeque::<Frame>::with_capacity(CAPACITY);
+        let mut frames = VecDeque::<(&Expr, Option<&Expr>)>::with_capacity(CAPACITY);
         active.push_back(ast);
         loop {
             while let Some(ast_node) = active.pop_back() {
@@ -129,22 +148,22 @@ impl ThompsonVisitor {
                 match ast_node {
                     Expr::Alternation(alt) => {
                         active.push_back(&alt.left_expr);
-                        frames.push_back(Frame { ast_node, next: Some(&alt.right_expr) });
+                        frames.push_back((ast_node, Some(&alt.right_expr)));
                     },
                     Expr::Concatenation(concat) => {
                         active.push_back(&concat.left_expr);
-                        frames.push_back(Frame { ast_node, next: Some(&concat.right_expr) });
+                        frames.push_back((ast_node, Some(&concat.right_expr)));
                     },
                     Expr::Repetition(rep) => {
                         active.push_back(&rep.expr);
-                        frames.push_back(Frame { ast_node, next: None });
+                        frames.push_back((ast_node, None));
                     },
                     Expr::Group(group) => {
                         active.push_back(&group.expr);
-                        frames.push_back(Frame { ast_node, next: None });
+                        frames.push_back((ast_node, None));
                     },
                     _ => {
-                        frames.push_back(Frame { ast_node, next: None })
+                        frames.push_back((ast_node, None))
                     }
                 }
             };
@@ -152,29 +171,31 @@ impl ThompsonVisitor {
 
             while let Some(frame) = frames.pop_back() {
                 match frame {
-                    Frame { ast_node: Expr::Alternation(_), next: Some(next_ast)} => {
-                        self.visit_in(frame.ast_node);
-                        frames.push_back(Frame { ast_node: frame.ast_node, next: None });
-                        active.push_back(next_ast);
+                    (node@Expr::Alternation(_), Some(next)) => {
+                        self.visit_in(node);
+                        frames.push_back((node, None));
+                        active.push_back(&next);
+
                         break;
                     },
-                    Frame { ast_node: Expr::Concatenation(rep), next: Some(next_ast)} => {
-                        self.visit_in(frame.ast_node);
-                        frames.push_back(Frame { ast_node: frame.ast_node, next: None });
-                        active.push_back(next_ast);
+                    (node@Expr::Concatenation(_), Some(next)) => {
+                        self.visit_in(node);
+                        frames.push_back((node, None));
+                        active.push_back(&next);
+
                         break;
-                    },
+                    }
                     _ => {
-                        self.visit_post(frame.ast_node);
+                        self.visit_post(frame.0);
                     }
                 }
             }
 
             if active.is_empty() && frames.is_empty() {
+                self.finish(ast);
                 break;
             }
         }    
-        self.finish(ast);
     }
 
 }

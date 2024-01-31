@@ -22,14 +22,16 @@ impl<T> Graph<T> {
         }
     }
 
-    pub fn add_node(&mut self, data: T) -> NodeId {
+    pub fn length(&self) -> usize {
+        self.length()
+    }
+
+    pub fn add_node(&mut self, data: T) {
         if self.is_full() {
             self.extend();
         }
-        let id = self.nodes.len();
 
         self.nodes.push(data);
-        id
     }
 
     // inserts edge only when two nodes are defined are defined. 
@@ -61,4 +63,5 @@ impl<T> Graph<T> {
         let new_capacity = MULTIPLIER*self.nodes.capacity();
         self.nodes.reserve_exact(new_capacity);
     }
+
 }
